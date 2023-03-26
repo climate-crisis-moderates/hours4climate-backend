@@ -1,0 +1,47 @@
+version: "3.3"
+
+services:
+  nginx:
+    container_name: 'nginx-service'
+    build:
+      context: .
+      dockerfile: docker/nginx.Dockerfile
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - ./config:/config
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+      - /tmp/acme_challenge:/tmp/acme_challenge
+    networks:
+      - app
+    restart: always
+    depends_on:
+      - webserver
+
+  redis:
+    container_name: 'redis-stack-server'
+    image: redis/redis-stack-server:latest
+    expose:
+      - 6379
+
+  webserver:
+    container_name: 'webserver'
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      REDIS_HOST_NAME: "redis"
+      REDIS_PORT: 6379
+      REDIS_DB: 1
+      HCAPTCHA_SECRET: "0x0000000000000000000000000000000000000000"
+      HTTP_PORT: 3000
+      STATIC_PATH: "./static"
+    expose:
+      - 3000
+    networks:
+      - app
+
+networks:
+  app:
+    driver: bridge

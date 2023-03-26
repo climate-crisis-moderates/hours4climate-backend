@@ -49,7 +49,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], config.http_port));
+    let addr = SocketAddr::from(([0, 0, 0, 0], config.http_port));
 
     let countries = countries::get_countries().await;
 

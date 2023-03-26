@@ -21,8 +21,18 @@ RUN adduser \
 
 WORKDIR /app
 
-COPY ./ .
+# build dependencies (they are slow-moving)
+COPY ./Cargo.lock ./Cargo.lock
+COPY ./Cargo.toml ./Cargo.toml
+RUN echo "fn main() {}" > dummy.rs && sed -i 's#src/main.rs#dummy.rs#' Cargo.toml
+RUN mkdir tests && echo "fn main() {}" > tests/it.rs
 
+RUN cargo build --release
+RUN sed -i 's#dummy.rs#src/main.rs#' Cargo.toml
+
+COPY ./src ./src
+
+# build for release
 RUN cargo build --release
 
 ####################################################################################################
@@ -36,10 +46,14 @@ COPY --from=builder /etc/group /etc/group
 
 WORKDIR /app
 
+# install ssl
+RUN apt-get update && apt install -y openssl ca-certificates
+
 # Copy our build
-COPY --from=builder /app/target/release/backend ./
+COPY --from=builder /app/target/release/app ./
 
 # Use an unprivileged user.
 USER app:app
 
-CMD ["/app/backend"]
+EXPOSE 3000
+CMD ["/app/app"]
