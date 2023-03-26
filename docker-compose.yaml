@@ -19,12 +19,6 @@ services:
     depends_on:
       - webserver
 
-  redis:
-    container_name: 'redis-stack-server'
-    image: redis/redis-stack-server:latest
-    expose:
-      - 6379
-
   webserver:
     container_name: 'webserver'
     build:
@@ -39,6 +33,16 @@ services:
       STATIC_PATH: "./static"
     expose:
       - 3000
+    networks:
+      - app
+    depends_on:
+      - redis
+
+  redis:
+    container_name: 'redis-stack-server'
+    image: redis/redis-stack-server:latest
+    expose:
+      - 6379
     networks:
       - app
 
