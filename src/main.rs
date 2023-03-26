@@ -5,8 +5,11 @@ use axum::{
     Json, Router,
 };
 use chrono::Utc;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashSet, net::SocketAddr};
+use serde::Deserialize;
+use std::{
+    collections::{HashMap, HashSet},
+    net::SocketAddr,
+};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -60,6 +63,7 @@ async fn main() {
     let app = Router::new()
         .route("/api/pledge", post(pledge))
         .route("/api/summary", get(summary))
+        .route("/api/country", get(country))
         .with_state(state)
         .fallback(static_files_service)
         .layer(CorsLayer::permissive())
@@ -153,9 +157,11 @@ async fn pledge(
         ])
         .cmd("INCRBY")
         .arg(&[
-            &format!("country_counter:{}", &payload.country),
+            &format!("country:hours:{}", &payload.country),
             &payload.hours.to_string(),
         ])
+        .cmd("INCR")
+        .arg(&[&format!("country:count:{}", &payload.country)])
         .query_async(&mut con)
         .await
         .map_err(|_| {
@@ -168,15 +174,9 @@ async fn pledge(
     Ok("".to_string())
 }
 
-#[derive(Serialize)]
-struct SummaryResponse {
-    countries: Vec<String>,
-    counts: Vec<Option<String>>,
-}
-
 async fn summary(
     State(state): State<AppState>,
-) -> Result<axum::extract::Json<SummaryResponse>, (StatusCode, String)> {
+) -> Result<axum::extract::Json<Vec<(String, f32, u32)>>, (StatusCode, String)> {
     let mut con = state.redis.get_async_connection().await.map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -184,15 +184,16 @@ async fn summary(
         )
     })?;
 
+    let countries = state.countries.1;
+
     // todo: this can be computed once instead of per request
-    let keys = state
-        .countries
-        .1
+    let keys = countries
         .iter()
-        .map(|c| format!("country_counter:{c}"))
+        .map(|c| format!("country:count:{c}"))
+        .chain(countries.iter().map(|c| format!("country:hours:{c}")))
         .collect::<Vec<_>>();
 
-    let counts: Vec<Option<String>> = redis::cmd("MGET")
+    let count_hours: Vec<Option<String>> = redis::cmd("MGET")
         .arg(&keys)
         .query_async(&mut con)
         .await
@@ -203,10 +204,46 @@ async fn summary(
             )
         })?;
 
-    Ok(SummaryResponse {
-        // todo: this clone could be avoided
-        countries: state.countries.1.clone(),
-        counts,
+    let (count, hours) = count_hours.split_at(countries.len());
+
+    let mut countries = count
+        .iter()
+        .zip(hours.iter())
+        .zip(countries.into_iter())
+        .filter_map(|((count, hours), country)| {
+            hours.as_ref().map(|hours| {
+                (
+                    country,
+                    hours.parse::<f32>().unwrap(),
+                    count.as_ref().unwrap().parse::<u32>().unwrap(),
+                )
+            })
+        })
+        .collect::<Vec<_>>();
+
+    // sort by country
+    countries.sort_unstable_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    Ok(countries.into())
+}
+
+async fn country(
+    State(state): State<AppState>,
+    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
+) -> axum::extract::Json<Vec<String>> {
+    let country = params.get("name").map(|c| c.to_lowercase());
+
+    if let Some(country) = country {
+        // simple search (does not take non-ascii characters into account and stuff, but well)
+        state
+            .countries
+            .1
+            .iter()
+            .filter(|c| c.to_lowercase().contains(&country))
+            .cloned()
+            .collect::<Vec<String>>()
+            .into()
+    } else {
+        state.countries.1.into()
     }
-    .into())
 }
