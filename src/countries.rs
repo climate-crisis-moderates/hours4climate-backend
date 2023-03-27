@@ -4,9 +4,6 @@ use reqwest::StatusCode;
 use serde_json::Value;
 
 pub async fn get_countries() -> (HashSet<String>, Vec<String>) {
-    let a = vec!["Denmark".to_string()];
-    return (a.clone().into_iter().collect(), a);
-
     let response = reqwest::get("https://restcountries.com/v3.1/all/?fields=name")
         .await
         .unwrap();
