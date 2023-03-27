@@ -28,9 +28,11 @@ services:
       REDIS_HOST_NAME: "redis"
       REDIS_PORT: 6379
       REDIS_DB: 1
-      HCAPTCHA_SECRET: "0x0000000000000000000000000000000000000000"
+      HCAPTCHA_SECRET: ${HCAPTCHA_SECRET}
       HTTP_PORT: 3000
       STATIC_PATH: "./static"
+    volumes:
+      - ../hours4climate-frontend/build:/app/static
     expose:
       - 3000
     networks:
