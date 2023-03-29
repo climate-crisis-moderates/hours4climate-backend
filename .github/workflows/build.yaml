@@ -48,3 +48,15 @@ jobs:
           push: ${{github.event_name == 'release'}}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    name: Deploy
+    if: github.event_name == 'release'
+    runs-on: ubuntu-latest
+    depends: build-and-publish-image
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+      - name: Deploy
+        run: ./deploy.sh
