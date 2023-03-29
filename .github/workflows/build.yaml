@@ -48,19 +48,3 @@ jobs:
           push: ${{github.event_name == 'release'}}
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-
-  build-and-publish-docker-compose:
-    name: Publish docker compose
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - name: Package
-        run: tar -czvf docker-compose.tar.gz nginx/ docker-compose.yaml
-      - name: Upload binaries to release
-        uses: svenstaro/upload-release-action@v2
-        with:
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          file: archive.tar.gz
-          asset_name: archive.tar.gz
-          tag: ${{ github.ref }}
