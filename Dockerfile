@@ -22,17 +22,16 @@ RUN adduser \
 WORKDIR /app
 
 # build dependencies (they are slow-moving)
-COPY ./Cargo.lock ./Cargo.lock
-COPY ./Cargo.toml ./Cargo.toml
-RUN echo "fn main() {}" > dummy.rs && sed -i 's#src/main.rs#dummy.rs#' Cargo.toml
-RUN mkdir tests && echo "fn main() {}" > tests/it.rs
+COPY ./Cargo.toml ./Cargo.lock .
+RUN mkdir src && echo "fn main() {}" > src/main.rs
 
 RUN cargo build --release
-RUN sed -i 's#dummy.rs#src/main.rs#' Cargo.toml
+RUN rm src/main.rs
 
 COPY ./src ./src
 
 # build for release
+RUN touch src/main.rs
 RUN cargo build --release
 
 ####################################################################################################

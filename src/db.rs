@@ -1,10 +1,14 @@
 use crate::config::Config;
 
-pub fn connect(config: &Config) -> Result<redis::Client, String> {
-    let connection_string = format!(
-        "redis://{}:{}/{}",
-        config.redis_host_name, config.redis_port, config.redis_db
-    );
+pub fn create_client(config: &Config) -> redis::Client {
+    let info = redis::ConnectionInfo {
+        addr: redis::ConnectionAddr::Tcp(config.redis_host_name.clone(), config.redis_port),
+        redis: redis::RedisConnectionInfo {
+            db: config.redis_db as i64,
+            username: None,
+            password: None,
+        },
+    };
 
-    Ok(redis::Client::open(connection_string).unwrap())
+    redis::Client::open(info).unwrap()
 }

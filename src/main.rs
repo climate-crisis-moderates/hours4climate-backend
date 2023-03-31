@@ -42,7 +42,7 @@ async fn main() {
             });
 
     // set up connection pool
-    let redis = db::connect(&config).unwrap();
+    let redis = db::create_client(&config);
 
     // initialize tracing
     tracing_subscriber::registry()
