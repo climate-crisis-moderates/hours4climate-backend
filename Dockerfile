@@ -1,9 +1,12 @@
-####################################################################################################
-## Builder
-####################################################################################################
-FROM rust:latest AS builder
+FROM rust:latest AS chef 
+RUN cargo install cargo-chef 
+WORKDIR /app
 
-RUN update-ca-certificates
+FROM chef AS planner
+COPY . .
+RUN cargo chef prepare  --recipe-path recipe.json
+
+FROM chef AS builder
 
 # Create appuser
 ENV USER=app
@@ -18,32 +21,19 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 
+COPY --from=planner /app/recipe.json recipe.json
 
-WORKDIR /app
+RUN cargo chef cook --release --recipe-path recipe.json
 
-# build dependencies (they are slow-moving)
-COPY ./Cargo.toml ./Cargo.lock .
-RUN mkdir src && echo "fn main() {}" > src/main.rs
-
-RUN cargo build --release
-RUN rm src/main.rs
-
-COPY ./src ./src
-
-# build for release
-RUN touch src/main.rs
+COPY . .
 RUN cargo build --release
 
-####################################################################################################
-## Final image
-####################################################################################################
 FROM debian:buster-slim
+WORKDIR /app
 
 # Import from builder.
 COPY --from=builder /etc/passwd /etc/passwd
 COPY --from=builder /etc/group /etc/group
-
-WORKDIR /app
 
 # install ssl
 RUN apt-get update && apt install -y openssl ca-certificates
