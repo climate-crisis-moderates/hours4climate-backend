@@ -49,6 +49,7 @@ async fn main() {
         .with(tracing_subscriber::fmt::layer())
         .init();
 
+    let origins = [config.host_name.parse().unwrap()];
     let addr = SocketAddr::from(([0, 0, 0, 0], config.http_port));
 
     let countries = countries::get_countries().await;
@@ -59,6 +60,8 @@ async fn main() {
         countries,
     };
 
+    let cors = CorsLayer::new().allow_origin(origins);
+
     // build our application with a route
     let app = Router::new()
         .route("/api/pledge", post(pledge))
@@ -66,7 +69,7 @@ async fn main() {
         .route("/api/country", get(country))
         .with_state(state)
         .fallback(static_files_service)
-        .layer(CorsLayer::permissive())
+        .layer(cors)
         .layer(TraceLayer::new_for_http());
 
     tracing::debug!("listening on {}", addr);

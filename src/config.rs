@@ -2,6 +2,9 @@ use envconfig::Envconfig;
 
 #[derive(Envconfig, Clone)]
 pub struct Config {
+    #[envconfig(from = "HOST_NAME")]
+    pub host_name: String,
+
     #[envconfig(from = "REDIS_HOST_NAME")]
     pub redis_host_name: String,
 
