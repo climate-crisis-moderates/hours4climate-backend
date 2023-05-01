@@ -13,12 +13,14 @@ use std::{
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
 use envconfig::Envconfig;
 mod countries;
 mod db;
+
+const RECENT_UPDATES_KEY: &str = "recent_updates";
+const MAX_UPDATES: &str = "4";
 
 #[derive(Clone)]
 struct AppState {
@@ -45,8 +47,8 @@ async fn main() {
     let redis = db::create_client(&config);
 
     // initialize tracing
-    tracing_subscriber::registry()
-        .with(tracing_subscriber::fmt::layer())
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
         .init();
 
     let origins = [config.host_name.parse().unwrap()];
@@ -67,6 +69,7 @@ async fn main() {
         .route("/api/pledge", post(pledge))
         .route("/api/summary", get(summary))
         .route("/api/country", get(country))
+        .route("/api/recent", get(recent))
         .with_state(state)
         .fallback(static_files_service)
         .layer(cors)
@@ -93,10 +96,8 @@ struct SiteKeyResponse {
 
 async fn check_captcha(token: &str, hcaptcha_secret: &str) -> Result<(), (StatusCode, String)> {
     let standard_error = || {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Cannot reach hcaptcha".to_string(),
-        )
+        tracing::error!("Cannot reach hcaptcha");
+        (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
     };
 
     let client = reqwest::Client::new();
@@ -140,14 +141,13 @@ async fn pledge(
         ));
     }
 
-    let mut con = state.redis.get_async_connection().await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Cannot reach db".to_string(),
-        )
+    let mut con = state.redis.get_async_connection().await.map_err(|err| {
+        tracing::error!("Cannot reach db: {:?}", err);
+        (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
     })?;
 
     redis::pipe()
+        // store the complete dataset
         .cmd("HSET")
         .arg(&[
             &format!("token:{}", payload.token),
@@ -158,20 +158,26 @@ async fn pledge(
             "timestamp",
             &Utc::now().to_rfc3339(),
         ])
+        // update the cached sum of country hours
         .cmd("INCRBY")
         .arg(&[
             &format!("country:hours:{}", &payload.country),
             &payload.hours.to_string(),
         ])
+        // update the cached count of country persons
         .cmd("INCR")
         .arg(&[&format!("country:count:{}", &payload.country)])
+        // push to list of recent updates
+        .cmd("LPUSH")
+        .arg(&[RECENT_UPDATES_KEY, &payload.token])
+        // trim the recent updates
+        .cmd("LTRIM")
+        .arg(&[RECENT_UPDATES_KEY, "0", MAX_UPDATES])
         .query_async(&mut con)
         .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Cannot reach db".to_string(),
-            )
+        .map_err(|err| {
+            tracing::error!("wrong query: {:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
         })?;
 
     Ok("".to_string())
@@ -179,12 +185,10 @@ async fn pledge(
 
 async fn summary(
     State(state): State<AppState>,
-) -> Result<axum::extract::Json<Vec<(String, f32, u32)>>, (StatusCode, String)> {
-    let mut con = state.redis.get_async_connection().await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Cannot reach db".to_string(),
-        )
+) -> Result<Json<Vec<(String, f32, u32)>>, (StatusCode, String)> {
+    let mut con = state.redis.get_async_connection().await.map_err(|err| {
+        tracing::error!("Cannot reach db: {:?}", err);
+        (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
     })?;
 
     let countries = state.countries.1;
@@ -200,11 +204,9 @@ async fn summary(
         .arg(&keys)
         .query_async(&mut con)
         .await
-        .map_err(|_| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                "Incorrect query".to_string(),
-            )
+        .map_err(|err| {
+            tracing::error!("wrong query: {:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
         })?;
 
     let (count, hours) = count_hours.split_at(countries.len());
@@ -230,10 +232,55 @@ async fn summary(
     Ok(countries.into())
 }
 
+async fn recent(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<(String, f32)>>, (StatusCode, String)> {
+    let mut con = state.redis.get_async_connection().await.map_err(|err| {
+        tracing::error!("Cannot reach db: {:?}", err);
+        (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
+    })?;
+
+    let recent_tokens: Vec<String> = redis::cmd("LRANGE")
+        .arg(&[RECENT_UPDATES_KEY, "0", MAX_UPDATES])
+        .query_async::<_, Vec<String>>(&mut con)
+        .await
+        .map_err(|err| {
+            tracing::error!("wrong query: {:?}", err);
+            (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
+        })?;
+
+    let pipe = recent_tokens
+        .into_iter()
+        .fold(redis::pipe(), |mut acc, token| {
+            acc.cmd("HMGET")
+                .arg(&[&format!("token:{token}"), "country", "hours"]);
+            acc
+        });
+
+    let recent_tokens: Vec<Vec<String>> = pipe.query_async(&mut con).await.map_err(|err| {
+        tracing::error!("wrong query: {:?}", err);
+        (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
+    })?;
+    let recent_tokens = recent_tokens
+        .into_iter()
+        .map(|mut entry: Vec<String>| {
+            let hours = entry
+                .pop()
+                .unwrap_or_default()
+                .parse::<f32>()
+                .unwrap_or_default();
+            let country = entry.pop().unwrap();
+            (country, hours)
+        })
+        .collect::<Vec<(String, f32)>>();
+
+    Ok(recent_tokens.into())
+}
+
 async fn country(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
-) -> axum::extract::Json<Vec<String>> {
+) -> Json<Vec<String>> {
     let country = params.get("name").map(|c| c.to_lowercase());
 
     if let Some(country) = country {
