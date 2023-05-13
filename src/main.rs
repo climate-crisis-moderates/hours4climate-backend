@@ -51,8 +51,13 @@ async fn main() {
         .with_max_level(tracing::Level::DEBUG)
         .init();
 
-    let origins = [config.host_name.parse().unwrap()];
-    let addr = SocketAddr::from(([0, 0, 0, 0], config.http_port));
+    let (cors, ip) = if config.host_name == "127.0.0.1" {
+        (CorsLayer::permissive(), [127, 0, 0, 1])
+    } else {
+        let origins = [config.host_name.parse().unwrap()];
+        (CorsLayer::new().allow_origin(origins), [0, 0, 0, 0])
+    };
+    let addr = SocketAddr::from((ip, config.http_port));
 
     let countries = countries::get_countries().await;
 
@@ -61,8 +66,6 @@ async fn main() {
         config,
         countries,
     };
-
-    let cors = CorsLayer::new().allow_origin(origins);
 
     // build our application with a route
     let app = Router::new()
