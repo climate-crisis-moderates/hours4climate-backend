@@ -10,7 +10,7 @@ pub async fn get_countries() -> (HashSet<String>, Vec<String>) {
     assert_eq!(response.status(), StatusCode::OK);
 
     if let Value::Array(values) = response.json().await.unwrap() {
-        let countries = values
+        let mut countries = values
             .into_iter()
             .map(|v| {
                 v.as_object()
@@ -26,6 +26,7 @@ pub async fn get_countries() -> (HashSet<String>, Vec<String>) {
                     .to_string()
             })
             .collect::<Vec<String>>();
+        countries.sort_unstable();
         (countries.iter().cloned().collect(), countries)
     } else {
         panic!("")
