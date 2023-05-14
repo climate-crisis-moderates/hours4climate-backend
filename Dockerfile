@@ -41,6 +41,8 @@ RUN apt-get update && apt install -y openssl ca-certificates
 # Copy our build
 COPY --from=builder /app/target/release/app ./
 
+COPY countries.json countries.json
+
 # Use an unprivileged user.
 USER app:app
 

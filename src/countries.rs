@@ -1,34 +1,32 @@
 use std::collections::HashSet;
 
-use reqwest::StatusCode;
-use serde_json::Value;
+#[allow(non_camel_case_types)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub enum Origin {
+    world,
+    country,
+}
 
-pub async fn get_countries() -> (HashSet<String>, Vec<String>) {
-    let response = reqwest::get("https://restcountries.com/v3.1/all/?fields=name")
-        .await
-        .unwrap();
-    assert_eq!(response.status(), StatusCode::OK);
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub struct Country {
+    pub id: String,
+    pub name: String,
+    pub origin: Origin,
+    pub emissions_year: u32,
+    pub emissions_unit: String,
+    pub emissions: i64,
+    pub employees_year: u32,
+    pub employees: u64,
+    pub employees_unit: String,
+}
 
-    if let Value::Array(values) = response.json().await.unwrap() {
-        let mut countries = values
-            .into_iter()
-            .map(|v| {
-                v.as_object()
-                    .unwrap()
-                    .get("name")
-                    .unwrap()
-                    .as_object()
-                    .unwrap()
-                    .get("common")
-                    .unwrap()
-                    .as_str()
-                    .unwrap()
-                    .to_string()
-            })
-            .collect::<Vec<String>>();
-        countries.sort_unstable();
-        (countries.iter().cloned().collect(), countries)
-    } else {
-        panic!("")
-    }
+pub async fn get_countries() -> (HashSet<String>, Vec<Country>) {
+    let file = std::fs::File::open("countries.json").expect("file should open read only");
+
+    let countries: Vec<Country> = serde_json::from_reader(file).unwrap();
+
+    (
+        countries.iter().map(|x| x.id.to_string()).collect(),
+        countries,
+    )
 }

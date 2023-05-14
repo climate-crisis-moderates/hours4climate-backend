@@ -1,3 +1,7 @@
 /target
 static/
 .env
+data/
+id_ed25519*
+venv/
+countries.json

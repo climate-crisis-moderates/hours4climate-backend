@@ -17,6 +17,7 @@ use tower_http::trace::TraceLayer;
 mod config;
 use envconfig::Envconfig;
 mod countries;
+use countries::Country;
 mod db;
 
 const RECENT_UPDATES_KEY: &str = "recent_updates";
@@ -26,7 +27,7 @@ const MAX_UPDATES: &str = "4";
 struct AppState {
     redis: redis::Client,
     config: config::Config,
-    countries: (HashSet<String>, Vec<String>),
+    countries: (HashSet<String>, Vec<Country>),
 }
 
 #[tokio::main]
@@ -199,8 +200,12 @@ async fn summary(
     // todo: this can be computed once instead of per request
     let keys = countries
         .iter()
-        .map(|c| format!("country:count:{c}"))
-        .chain(countries.iter().map(|c| format!("country:hours:{c}")))
+        .map(|c| format!("country:count:{}", c.name))
+        .chain(
+            countries
+                .iter()
+                .map(|c| format!("country:hours:{}", c.name)),
+        )
         .collect::<Vec<_>>();
 
     let count_hours: Vec<Option<String>> = redis::cmd("MGET")
@@ -221,7 +226,7 @@ async fn summary(
         .filter_map(|((count, hours), country)| {
             hours.as_ref().map(|hours| {
                 (
-                    country,
+                    country.name,
                     hours.parse::<f32>().unwrap(),
                     count.as_ref().unwrap().parse::<u32>().unwrap(),
                 )
@@ -283,7 +288,7 @@ async fn recent(
 async fn country(
     State(state): State<AppState>,
     axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
-) -> Json<Vec<String>> {
+) -> Json<Vec<Country>> {
     let country = params.get("name").map(|c| c.to_lowercase());
 
     if let Some(country) = country {
@@ -292,9 +297,9 @@ async fn country(
             .countries
             .1
             .iter()
-            .filter(|c| c.to_lowercase().contains(&country))
+            .filter(|c| c.name.to_lowercase().contains(&country))
             .cloned()
-            .collect::<Vec<String>>()
+            .collect::<Vec<Country>>()
             .into()
     } else {
         state.countries.1.into()

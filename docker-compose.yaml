@@ -19,7 +19,7 @@ services:
 
   webserver:
     container_name: 'webserver'
-    image: ghcr.io/climate-crisis-moderates/hours4climate-backend:latest
+    #image: ghcr.io/climate-crisis-moderates/hours4climate-backend:latest
     build:
       context: .
       dockerfile: Dockerfile
