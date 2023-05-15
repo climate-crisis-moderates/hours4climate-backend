@@ -6,10 +6,7 @@ use axum::{
 };
 use chrono::Utc;
 use serde::Deserialize;
-use std::{
-    collections::{HashMap, HashSet},
-    net::SocketAddr,
-};
+use std::{collections::HashMap, net::SocketAddr};
 use tower_http::cors::CorsLayer;
 use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
@@ -27,7 +24,7 @@ const MAX_UPDATES: &str = "4";
 struct AppState {
     redis: redis::Client,
     config: config::Config,
-    countries: (HashSet<String>, Vec<Country>),
+    countries: HashMap<String, Country>,
 }
 
 #[tokio::main]
@@ -131,7 +128,7 @@ async fn pledge(
 ) -> Result<String, (StatusCode, String)> {
     check_captcha(&payload.token, &state.config.hcaptcha_secret).await?;
 
-    if !state.countries.0.contains(&payload.country) {
+    if !state.countries.contains_key(&payload.country) {
         return Err((
             StatusCode::UNPROCESSABLE_ENTITY,
             "country is invalid".to_string(),
@@ -195,17 +192,13 @@ async fn summary(
         (StatusCode::INTERNAL_SERVER_ERROR, "".to_string())
     })?;
 
-    let countries = state.countries.1;
+    let countries = state.countries;
 
     // todo: this can be computed once instead of per request
     let keys = countries
-        .iter()
-        .map(|c| format!("country:count:{}", c.name))
-        .chain(
-            countries
-                .iter()
-                .map(|c| format!("country:hours:{}", c.name)),
-        )
+        .keys()
+        .map(|c| format!("country:count:{}", c))
+        .chain(countries.keys().map(|c| format!("country:hours:{}", c)))
         .collect::<Vec<_>>();
 
     let count_hours: Vec<Option<String>> = redis::cmd("MGET")
@@ -222,11 +215,11 @@ async fn summary(
     let mut countries = count
         .iter()
         .zip(hours.iter())
-        .zip(countries.into_iter())
+        .zip(countries.keys())
         .filter_map(|((count, hours), country)| {
             hours.as_ref().map(|hours| {
                 (
-                    country.name,
+                    country.clone(),
                     hours.parse::<f32>().unwrap(),
                     count.as_ref().unwrap().parse::<u32>().unwrap(),
                 )
@@ -285,23 +278,6 @@ async fn recent(
     Ok(recent_tokens.into())
 }
 
-async fn country(
-    State(state): State<AppState>,
-    axum::extract::Query(params): axum::extract::Query<HashMap<String, String>>,
-) -> Json<Vec<Country>> {
-    let country = params.get("name").map(|c| c.to_lowercase());
-
-    if let Some(country) = country {
-        // simple search (does not take non-ascii characters into account and stuff, but well)
-        state
-            .countries
-            .1
-            .iter()
-            .filter(|c| c.name.to_lowercase().contains(&country))
-            .cloned()
-            .collect::<Vec<Country>>()
-            .into()
-    } else {
-        state.countries.1.into()
-    }
+async fn country(State(state): State<AppState>) -> Json<HashMap<String, Country>> {
+    state.countries.into()
 }

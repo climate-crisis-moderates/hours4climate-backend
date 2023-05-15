@@ -45,8 +45,23 @@ services:
     image: redis/redis-stack-server:latest
     expose:
       - 6379
+    environment:
+      REDIS_ARGS: "--appendonly yes --appendfsync everysec"
     volumes:
       - ./data:/data
+    networks:
+      - app
+
+  redis-debug:
+    profiles:
+      - debug
+    container_name: 'redis-stack-debug'
+    image: redis/redis-stack:latest
+    volumes:
+      - ./data_debug:/data
+    ports:
+      - 6380:6379
+      - 8001:8001
     networks:
       - app
 

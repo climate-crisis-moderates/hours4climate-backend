@@ -125,10 +125,10 @@ def _process():
     for key in DATASETS:
         _join_dataset(key, values, world)
 
-    return [
-        {"id": country_code, **_process_country(data, world)}
+    return {
+        country_code: {"id": country_code, **_process_country(data, world)}
         for country_code, data in values.items()
-    ]
+    }
 
 
 entries = _process()
